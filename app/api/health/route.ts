@@ -1,0 +1,1 @@
+export async function GET(){try{const {env}=await import("cloudflare:workers");await env.DB.prepare("SELECT 1 AS ok").first();return Response.json({status:"ok",database:"connected",schemaVersion:1})}catch{return Response.json({status:"degraded",database:"unavailable",schemaVersion:1},{status:503})}}
