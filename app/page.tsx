@@ -1,28 +1,16 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuotes, type Quote } from "../src/storage";
 
-type Quote = { id:string; body:string; speakers:string[]; season:number; episode:number; title:string; favorite:boolean; queued:boolean; postedAt?:string; notes?:string; createdAt:string };
 type View = "today"|"archive"|"add"|"queue"|"more";
 const PEOPLE=["Frasier","Niles","Martin","Daphne","Roz","Eddie","Lilith","Bulldog","Bebe","Gil","Noel","Kenny","Donny","Mel","Frederick","Sherry","Ronee"];
 if(typeof window!=="undefined" && !window.crypto.randomUUID){Object.defineProperty(window.crypto,"randomUUID",{value:()=>`q-${Date.now()}-${Math.random().toString(36).slice(2)}`})}
 const KNOWN:Record<string,string>={"1-1":"The Good Son","1-24":"My Coffee with Niles","2-3":"The Matchmaker","3-17":"High Crane Drifter","4-1":"The Two Mrs. Cranes","5-14":"The Ski Lodge","6-17":"Dinner Party","7-15":"Out with Dad","8-9":"Frasier's Edge","9-14":"Juvenilia","10-14":"Daphne Does Dinner","11-24":"Goodnight, Seattle"};
-const seed:Quote[]=[
- {id:"demo1",body:"By God, Niles!",speakers:["Frasier"],season:3,episode:17,title:"High Crane Drifter",favorite:true,queued:true,createdAt:"2026-08-02T18:00:00Z"},
- {id:"demo2",body:"Frasier: This is a nightmare.\nNiles: No, this is brunch.",speakers:["Frasier","Niles"],season:5,episode:14,title:"The Ski Lodge",favorite:false,queued:false,createdAt:"2026-08-01T18:00:00Z"},
- {id:"demo3",body:"I am not a man who betrays his principles. I merely adapt them to the situation.",speakers:["Niles"],season:6,episode:17,title:"Dinner Party",favorite:false,queued:false,postedAt:"2026-07-30T18:00:00Z",createdAt:"2026-07-29T18:00:00Z"}
-];
-
 function format(q:Quote){const names=q.speakers.length<2?q.speakers[0]:q.speakers.slice(0,-1).join(", ")+" and "+q.speakers.at(-1);return `${q.body}\n\n— ${names}, S${q.season} Ep${q.episode}`}
-function useQuotes(){
- const [quotes,setQuotes]=useState<Quote[]>([]); const [ready,setReady]=useState(false);
- useEffect(()=>{const req=indexedDB.open("frasier-archive",1);req.onupgradeneeded=()=>req.result.createObjectStore("quotes",{keyPath:"id"});req.onsuccess=()=>{const db=req.result;const tx=db.transaction("quotes","readwrite"),store=tx.objectStore("quotes");store.getAll().onsuccess=e=>{const found=(e.target as IDBRequest<Quote[]>).result;if(!found.length)seed.forEach(q=>store.put(q));setQuotes(found.length?found:seed);setReady(true)}}},[]);
- const save=(next:Quote[])=>{setQuotes(next);const req=indexedDB.open("frasier-archive",1);req.onsuccess=()=>{const tx=req.result.transaction("quotes","readwrite"),s=tx.objectStore("quotes");s.clear();next.forEach(q=>s.put(q))}};
- return {quotes,save,ready};
-}
 
 export default function Home(){
- const {quotes,save,ready}=useQuotes(); const [view,setView]=useState<View>("today"); const [query,setQuery]=useState(""); const [copied,setCopied]=useState<string>(); const [online,setOnline]=useState(true); const fileRef=useRef<HTMLInputElement>(null);
+ const {quotes,save,ready,syncStatus,syncNow}=useQuotes(); const [view,setView]=useState<View>("today"); const [query,setQuery]=useState(""); const [copied,setCopied]=useState<string>(); const [online,setOnline]=useState(navigator.onLine); const fileRef=useRef<HTMLInputElement>(null);
  useEffect(()=>{const f=()=>setOnline(navigator.onLine);addEventListener("online",f);addEventListener("offline",f);return()=>{removeEventListener("online",f);removeEventListener("offline",f)}},[]);
  const queued=quotes.filter(q=>q.queued&&!q.postedAt); const today=queued[0]||quotes.find(q=>!q.postedAt); const suggested=quotes.find(q=>!q.postedAt&&q.id!==today?.id&&!q.queued);
  const mutate=(id:string,patch:Partial<Quote>)=>save(quotes.map(q=>q.id===id?{...q,...patch}:q));
@@ -31,9 +19,9 @@ export default function Home(){
  const exportData=()=>{const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([JSON.stringify({schemaVersion:1,exportedAt:new Date().toISOString(),quotes},null,2)],{type:"application/json"}));a.download="frasier-quote-archive.json";a.click()};
  const importData=async(f:File)=>{try{const data=JSON.parse(await f.text());if(Array.isArray(data.quotes))save(data.quotes);alert("Archive restored.")}catch{alert("That file could not be imported.")}};
  return <div className="app-shell">
-  <aside className="rail"><Brand/><nav><Nav view={view} setView={setView}/></nav><div className="rail-foot"><span className={online?"dot":"dot off"}/>{online?"Synced":"Offline ready"}</div></aside>
+  <aside className="rail"><Brand/><nav><Nav view={view} setView={setView}/></nav><button className="rail-foot" onClick={syncNow}><span className={online?"dot":"dot off"}/>{online?syncStatus:"Offline ready"}</button></aside>
   <main className="main">
-   <header className="mobile-head"><Brand/><button className="sync" aria-label="Sync status"><span className={online?"dot":"dot off"}/>{online?"Synced":"Offline"}</button></header>
+   <header className="mobile-head"><Brand/><button className="sync" onClick={syncNow} aria-label="Sync now"><span className={online?"dot":"dot off"}/>{online?syncStatus:"Offline"}</button></header>
    {!ready?<div className="loading">Tuning KACL…</div>:view==="today"?<Today q={today} suggestion={suggested} copy={copy} copied={copied} mutate={mutate} onEdit={()=>setView("add")}/>:view==="archive"?<Archive quotes={quotes} query={query} setQuery={setQuery} copy={copy} copied={copied} mutate={mutate}/>:view==="add"?<AddQuote onAdd={add}/>:view==="queue"?<Queue quotes={queued} mutate={mutate} copy={copy} copied={copied}/>:<More count={quotes.length} exportData={exportData} fileRef={fileRef} importData={importData}/>} 
   </main><nav className="bottom"><Nav view={view} setView={setView}/></nav>
  </div>
