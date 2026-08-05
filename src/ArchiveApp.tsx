@@ -5,7 +5,7 @@ import{episodeFor,episodesForSeason}from'./data/episodes';
 import{EMPTY_FILTERS,activeFilterCount,episodeTitle,formatBody,matchesFilters,matchesSearch,sortQuotes,type ArchiveFilters,type ArchiveSort}from'./quote-utils';
 import'./archive.css';
 type View='today'|'archive'|'add'|'queue'|'more';
-const PEOPLE=['Frasier','Niles','Martin','Daphne','Roz','Eddie','Lilith','Bulldog','Bebe','Gil','Noel','Kenny','Donny','Mel','Frederick','Sherry','Ronee'];
+const PEOPLE=['Frasier','Niles','Martin','Daphne','Roz','Eddie','Lilith','Bulldog','Bebe','Gil','Noel','Kenny','Donny','Mel','Frederick','Sherry','Ronee','Kate','Tom','Jerome','Father Mike','Caller',"Doctor's Secretary",'Guard','Timbermill Waitress'];
 const navs:[View,string,string][]=[['today','Today','◉'],['archive','Archive','⌕'],['add','Add','＋'],['queue','Queue','≡'],['more','More','•••']];
 function attribution(q:Quote,include=false){const names=q.speakers.length<2?q.speakers[0]:q.speakers.slice(0,-1).join(', ')+' and '+q.speakers.at(-1),title=episodeTitle(q);return `- ${names}, ${include&&title?`“${title},” `:''}S${q.season}E${q.episode}`}
 function output(q:Quote,include=false){return `${formatBody(q.body)}\n\n${attribution(q,include)}`}
