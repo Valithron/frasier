@@ -1,27 +1,1246 @@
 "use client";
-import{useEffect,useMemo,useRef,useState}from'react';
-import{useQuotes,type Quote}from'./storage';
-import{episodeFor,episodesForSeason}from'./data/episodes';
-import{EMPTY_FILTERS,activeFilterCount,episodeTitle,formatBody,matchesFilters,matchesSearch,sortQuotes,type ArchiveFilters,type ArchiveSort}from'./quote-utils';
-import'./archive.css';
-type View='today'|'archive'|'add'|'queue'|'more';
-const PEOPLE=['Frasier','Niles','Martin','Daphne','Roz','Eddie','Lilith','Bulldog','Bebe','Gil','Noel','Kenny','Donny','Mel','Frederick','Sherry','Ronee','Kate','Tom','Jerome','Father Mike','Caller',"Doctor's Secretary",'Guard','Timbermill Waitress'];
-const navs:[View,string,string][]=[['today','Today','◉'],['archive','Archive','⌕'],['add','Add','＋'],['queue','Queue','≡'],['more','More','•••']];
-function attribution(q:Quote,include=false){const names=q.speakers.length<2?q.speakers[0]:q.speakers.slice(0,-1).join(', ')+' and '+q.speakers.at(-1),title=episodeTitle(q);return `- ${names}, ${include&&title?`“${title},” `:''}S${q.season}E${q.episode}`}
-function output(q:Quote,include=false){return `${formatBody(q.body)}\n\n${attribution(q,include)}`}
-export default function ArchiveApp(){const api=useQuotes(),[view,setView]=useState<View>('today'),[query,setQuery]=useState(''),[copied,setCopied]=useState<string>(),[editing,setEditing]=useState<Quote>(),[toast,setToast]=useState<{text:string;undo?:()=>void}>(),[online,setOnline]=useState(navigator.onLine),[includeTitle,setIncludeTitle]=useState(()=>localStorage.getItem('frasier-include-episode-title')==='true');const fileRef=useRef<HTMLInputElement>(null);useEffect(()=>{const f=()=>setOnline(navigator.onLine);addEventListener('online',f);addEventListener('offline',f);return()=>{removeEventListener('online',f);removeEventListener('offline',f)}},[]);useEffect(()=>localStorage.setItem('frasier-include-episode-title',String(includeTitle)),[includeTitle]);useEffect(()=>{if(!toast)return;const t=setTimeout(()=>setToast(undefined),5000);return()=>clearTimeout(t)},[toast]);const quotes=api.quotes.filter(q=>!q.deletedAt),queued=quotes.filter(q=>q.queued&&!q.postedAt).sort((a,b)=>(b.season-a.season)||(b.episode-a.episode)||b.createdAt.localeCompare(a.createdAt)),today=queued[0]||quotes.find(q=>!q.postedAt);const copy=async(q:Quote)=>{await navigator.clipboard.writeText(output(q,includeTitle));setCopied(q.id);setTimeout(()=>setCopied(undefined),1800)};const remove=async(q:Quote)=>{await api.deleteQuote(q.id);setToast({text:'Quote deleted',undo:()=>void api.restoreQuote(q.id)})};const exportData=()=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify({schemaVersion:1,exportedAt:new Date().toISOString(),quotes},null,2)],{type:'application/json'}));a.download='frasier-quote-archive.json';a.click()};const importData=async(f:File)=>{try{const data=JSON.parse(await f.text());if(Array.isArray(data.quotes))await api.replaceArchive(data.quotes);alert('Archive restored.')}catch{alert('That file could not be imported.')}};return <div className="app-shell"><aside className="rail"><Brand/><nav><Nav view={view} setView={setView}/></nav><button className="rail-foot" onClick={api.syncNow}><span className={online?'dot':'dot off'}/>{online?api.syncStatus:'Offline ready'}</button></aside><main className="main"><header className="mobile-head"><Brand/><button className="sync" onClick={api.syncNow}><span className={online?'dot':'dot off'}/>{online?api.syncStatus:'Offline'}</button></header>{!api.ready?<div className="loading">Tuning KACL…</div>:view==='today'?<Today q={today} copy={copy} copied={copied} update={api.updateQuote} edit={setEditing} remove={remove}/>:view==='archive'?<Archive quotes={quotes} query={query} setQuery={setQuery} copy={copy} copied={copied} update={api.updateQuote} edit={setEditing} remove={remove}/>:view==='add'?<section><Header eyebrow="Studio notebook" title="Capture a quote" sub="From memory to archive in under thirty seconds."/><QuoteForm mode="create" includeTitle={includeTitle} existing={quotes} cancel={()=>setView('archive')} save={async(q,queue)=>{await api.createQuote({...q,queued:queue});setView(queue?'queue':'archive')}}/></section>:view==='queue'?<Queue quotes={queued} update={api.updateQuote} copy={copy} copied={copied}/>:<More count={quotes.length} includeTitle={includeTitle} setIncludeTitle={setIncludeTitle} exportData={exportData} fileRef={fileRef} importData={importData}/>}</main><nav className="bottom"><Nav view={view} setView={setView}/></nav>{editing&&<Editor quote={editing} existing={quotes} includeTitle={includeTitle} close={()=>setEditing(undefined)} save={async q=>{await api.updateQuote(q.id,q);setEditing(undefined);setToast({text:'Quote updated'})}}/>}{toast&&<div className="toast">{toast.text}{toast.undo&&<button onClick={()=>{toast.undo?.();setToast(undefined)}}>Undo</button>}</div>}</div>}
-function Brand(){return <div className="brand"><div className="mic">●</div><div><span>KACL 780</span><strong>Frasier Archive</strong></div><b>ON AIR</b></div>}
-function Nav({view,setView}:{view:View;setView:(v:View)=>void}){return <>{navs.map(([v,l,i])=><button key={v} className={`${view===v?'active':''} ${v==='add'?'add-nav':''}`} onClick={()=>setView(v)}><i>{i}</i><span>{l}</span></button>)}</>}
-function Header({eyebrow,title,sub}:{eyebrow:string;title:string;sub:string}){return <div className="page-head"><div><p>{eyebrow}</p><h1>{title}</h1><span>{sub}</span></div><div className="wave">▂▅▃▆▂▇▃▅▂▆</div></div>}
-function Menu({q,update,edit,remove}:{q:Quote;update:(id:string,p:Partial<Quote>)=>void;edit:(q:Quote)=>void;remove:(q:Quote)=>void}){const[open,setOpen]=useState(false);const act=(fn:()=>void)=>{fn();setOpen(false)};return <div className="menu-wrap"><button className="dots" aria-label="Quote options" onClick={()=>setOpen(!open)}>•••</button>{open&&<><button className="menu-backdrop" aria-label="Close menu" onClick={()=>setOpen(false)}/><div className="quote-menu"><button onClick={()=>act(()=>edit(q))}>Edit quote</button><button onClick={()=>act(()=>update(q.id,{queued:!q.queued}))}>{q.queued?'Remove from queue':'Add to queue'}</button><button onClick={()=>act(()=>update(q.id,{postedAt:q.postedAt?undefined:new Date().toISOString(),queued:q.postedAt?q.queued:false}))}>{q.postedAt?'Mark unposted':'Mark posted'}</button><button onClick={()=>act(()=>update(q.id,{favorite:!q.favorite}))}>{q.favorite?'Remove favorite':'Add favorite'}</button><button className="danger" onClick={()=>act(()=>{if(confirm(`Delete “${q.body.slice(0,55)}${q.body.length>55?'…':''}”?`))remove(q)})}>Delete quote</button></div></>}</div>}
-function Card({q,copy,copied,update,edit,remove,hero=false}:{q:Quote;copy:(q:Quote)=>void;copied?:string;update:(id:string,p:Partial<Quote>)=>void;edit:(q:Quote)=>void;remove:(q:Quote)=>void;hero?:boolean}){return <article className={hero?'quote-card hero':'quote-card'}><div className="card-top"><span className="ep">S{q.season} · EP {q.episode}</span><div className="card-tools"><button className={q.favorite?'star on':'star'} onClick={()=>update(q.id,{favorite:!q.favorite})}>★</button><Menu q={q} update={update} edit={edit} remove={remove}/></div></div><blockquote>{formatBody(q.body)}</blockquote><div className="attribution"><strong>{q.speakers.join(' & ')}</strong><span>{episodeTitle(q)}</span></div><div className="actions"><button className="primary" onClick={()=>copy(q)}>{copied===q.id?'Copied ✓':'Copy for X'}</button>{q.postedAt?<span className="posted">Posted {new Date(q.postedAt).toLocaleDateString()}</span>:<button onClick={()=>update(q.id,{postedAt:new Date().toISOString(),queued:false})}>Mark posted</button>}</div></article>}
-function Today({q,copy,copied,update,edit,remove}:{q?:Quote;copy:(q:Quote)=>void;copied?:string;update:(id:string,p:Partial<Quote>)=>void;edit:(q:Quote)=>void;remove:(q:Quote)=>void}){return <section><Header eyebrow="Today’s broadcast" title="Good afternoon, Seattle." sub="Your next quote is ready for air."/>{q?<Card q={q} copy={copy} copied={copied} update={update} edit={edit} remove={remove} hero/>:<Empty text="Your archive is waiting for its first quote."/>}</section>}
-function Archive({quotes,query,setQuery,copy,copied,update,edit,remove}:{quotes:Quote[];query:string;setQuery:(s:string)=>void;copy:(q:Quote)=>void;copied?:string;update:(id:string,p:Partial<Quote>)=>void;edit:(q:Quote)=>void;remove:(q:Quote)=>void}){const[filters,setFilters]=useState<ArchiveFilters>(EMPTY_FILTERS),[sort,setSort]=useState<ArchiveSort>(()=>(localStorage.getItem('frasier-sort')as ArchiveSort)||'recent'),[open,setOpen]=useState(false);useEffect(()=>localStorage.setItem('frasier-sort',sort),[sort]);const list=useMemo(()=>sortQuotes(quotes.filter(q=>matchesSearch(q,query)&&matchesFilters(q,filters)),sort),[quotes,query,filters,sort]),count=activeFilterCount(filters);return <section><Header eyebrow={`${quotes.length} saved quotations`} title="The Archive" sub="Every bon mot, barb and beautiful disaster."/><div className="archive-tools"><div className="search"><span>⌕</span><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search quote, character or episode…"/></div><button className="filter-button" onClick={()=>setOpen(true)}>Filters{count>0&&<b>{count}</b>}</button><select className="sort-select" value={sort} onChange={e=>setSort(e.target.value as ArchiveSort)}><option value="recent">Recently added</option><option value="oldest">Oldest added</option><option value="episode">Episode order</option><option value="episodeReverse">Reverse episode</option><option value="recentlyPosted">Recently posted</option><option value="character">Character A–Z</option></select></div>{count>0&&<div className="filter-summary"><span>{count} filters active</span><button onClick={()=>setFilters(EMPTY_FILTERS)}>Clear</button></div>}<div className="results"><p>{list.length} {list.length===1?'result':'results'}</p>{list.map(q=><Card key={q.id} q={q} copy={copy} copied={copied} update={update} edit={edit} remove={remove}/>)}</div>{open&&<Filters filters={filters} setFilters={setFilters} resultCount={list.length} close={()=>setOpen(false)}/>}</section>}
-function Filters({filters,setFilters,resultCount,close}:{filters:ArchiveFilters;setFilters:(f:ArchiveFilters)=>void;resultCount:number;close:()=>void}){const toggle=(key:'characters'|'seasons'|'episodes',value:string|number)=>{const values=filters[key]as(string|number)[],has=values.includes(value);let next={...filters,[key]:has?values.filter(x=>x!==value):[...values,value]}as ArchiveFilters;if(key==='seasons'&&has)next={...next,episodes:next.episodes.filter(x=>Number(x.split('-')[0])!==value)};if(key==='episodes'&&!has){const s=Number(String(value).split('-')[0]);if(!next.seasons.includes(s))next={...next,seasons:[...next.seasons,s]}}setFilters(next)};return <div className="sheet-layer"><button className="sheet-backdrop" onClick={close}/><aside className="filter-sheet"><header><div><small>ARCHIVE</small><h2>Filter archive</h2></div><button onClick={close}>×</button></header><div className="filter-scroll"><Section title="Characters"><div className="check-grid">{PEOPLE.map(p=><label key={p}><input type="checkbox" checked={filters.characters.includes(p)} onChange={()=>toggle('characters',p)}/><span>{p}</span></label>)}</div></Section><Section title="Seasons"><div className="season-grid">{Array.from({length:11},(_,i)=>i+1).map(s=><label key={s}><input type="checkbox" checked={filters.seasons.includes(s)} onChange={()=>toggle('seasons',s)}/><span>S{s}</span></label>)}</div></Section><Section title="Episodes">{filters.seasons.length?filters.seasons.slice().sort((a,b)=>a-b).map(s=><details key={s} open={filters.seasons.length===1}><summary>Season {s}</summary>{episodesForSeason(s).map(e=><label className="episode-row" key={e.key}><input type="checkbox" checked={filters.episodes.includes(e.key)} onChange={()=>toggle('episodes',e.key)}/><span>E{String(e.episode).padStart(2,'0')} · {e.title}</span></label>)}</details>):<p className="hint">Choose a season to filter by episode.</p>}</Section><Section title="Posting status"><Radio value={filters.postingStatus} set={v=>setFilters({...filters,postingStatus:v as ArchiveFilters['postingStatus']})} options={[['any','Any status'],['unposted','Unposted'],['posted','Posted']]}/></Section><Section title="Queue status"><Radio value={filters.queueStatus} set={v=>setFilters({...filters,queueStatus:v as ArchiveFilters['queueStatus']})} options={[['any','Any queue status'],['queued','In queue'],['notQueued','Not queued']]}/></Section><Section title="More"><label className="switch-row"><input type="checkbox" checked={filters.favoritesOnly} onChange={e=>setFilters({...filters,favoritesOnly:e.target.checked})}/><span>Favorites only</span></label><label className="switch-row"><input type="checkbox" checked={filters.hasNotes} onChange={e=>setFilters({...filters,hasNotes:e.target.checked})}/><span>Has private notes</span></label><Radio value={filters.quoteType} set={v=>setFilters({...filters,quoteType:v as ArchiveFilters['quoteType']})} options={[['any','Any quote type'],['single','Single character'],['exchange','Exchange']]}/></Section></div><footer><button onClick={()=>setFilters(EMPTY_FILTERS)}>Clear all</button><button className="primary" onClick={close}>Show {resultCount} results</button></footer></aside></div>}
-function Section({title,children}:{title:string;children:React.ReactNode}){return <section className="filter-section"><h3>{title}</h3>{children}</section>}
-function Radio({value,set,options}:{value:string;set:(v:string)=>void;options:[string,string][]}){return <div className="radio-list">{options.map(([v,l])=><label key={v}><input type="radio" checked={value===v} onChange={()=>set(v)}/><span>{l}</span></label>)}</div>}
-function QuoteForm({mode,initial,includeTitle,existing,save,cancel}:{mode:'create'|'edit';initial?:Quote;includeTitle:boolean;existing:Quote[];save:(q:Quote,queue:boolean)=>void;cancel:()=>void}){const[body,setBody]=useState(initial?.body||''),[speakers,setSpeakers]=useState(initial?.speakers||['Frasier']),[season,setSeason]=useState(initial?.season||3),[episode,setEpisode]=useState(initial?.episode||17),[notes,setNotes]=useState(initial?.notes||'');useEffect(()=>{if(!episodesForSeason(season).some(e=>e.episode===episode))setEpisode(1)},[season,episode]);const q:Quote={...(initial||{id:crypto.randomUUID(),favorite:false,queued:false,createdAt:new Date().toISOString()}),body,speakers,season,episode,title:episodeFor(season,episode)?.title||'',notes};const duplicate=existing.some(x=>x.id!==q.id&&x.body.trim().toLowerCase()===body.trim().toLowerCase()),valid=Boolean(body.trim()&&speakers.length);return <div className="form-card"><label>QUOTE OR EXCHANGE<textarea autoFocus value={body} onChange={e=>setBody(e.target.value)} placeholder="Type each spoken line, with a blank line between speakers."/><small>{output(q,includeTitle).length} copied characters{output(q,includeTitle).length>280?' · Over 280':''}</small></label>{duplicate&&<p className="form-warning">A quote with the same text already exists.</p>}<fieldset><legend>SPEAKERS</legend><div className="people">{PEOPLE.map(p=><button type="button" className={speakers.includes(p)?'chosen':''} onClick={()=>setSpeakers(speakers.includes(p)?speakers.filter(x=>x!==p):[...speakers,p])} key={p}>{p}</button>)}</div></fieldset><div className="row"><label>SEASON<select value={season} onChange={e=>setSeason(+e.target.value)}>{Array.from({length:11},(_,i)=><option key={i} value={i+1}>Season {i+1}</option>)}</select></label><label>EPISODE<select value={episode} onChange={e=>setEpisode(+e.target.value)}>{episodesForSeason(season).map(e=><option key={e.key} value={e.episode}>E{e.episode} · {e.title}</option>)}</select></label></div><label>PRIVATE NOTES<input value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Optional context or reminder"/></label><div className="preview"><span>X PREVIEW · {output(q,includeTitle).length}/280</span><p>{body?formatBody(body):'Your quote preview will appear here.'}</p>{body&&<strong>{attribution(q,includeTitle)}</strong>}</div><div className="save-row"><button onClick={cancel}>Cancel</button>{mode==='create'&&<button disabled={!valid} onClick={()=>save(q,false)}>Save quote</button>}<button className="primary" disabled={!valid} onClick={()=>save(q,mode==='create')}>{mode==='edit'?'Save changes':'Save & queue'}</button></div></div>}
-function Editor({quote,existing,includeTitle,close,save}:{quote:Quote;existing:Quote[];includeTitle:boolean;close:()=>void;save:(q:Quote)=>void}){return <div className="editor-layer"><button className="sheet-backdrop" onClick={close}/><section className="editor"><header><div><small>EDIT QUOTE</small><h2>S{quote.season} · Episode {quote.episode}</h2></div><button onClick={close}>×</button></header><QuoteForm mode="edit" initial={quote} existing={existing} includeTitle={includeTitle} cancel={close} save={q=>save(q)}/></section></div>}
-function Queue({quotes,update,copy,copied}:{quotes:Quote[];update:(id:string,p:Partial<Quote>)=>void;copy:(q:Quote)=>void;copied?:string}){return <section><Header eyebrow={`${quotes.length} days prepared`} title="The Queue" sub="Your upcoming broadcasts, in order."/>{quotes.length?<div className="queue-list">{quotes.map((q,i)=><div className="queue-row" key={q.id}><b>{String(i+1).padStart(2,'0')}</b><div><span>{q.speakers.join(' & ')} · S{q.season} Ep{q.episode}</span><p>{q.body}</p></div><button onClick={()=>copy(q)}>{copied===q.id?'✓':'Copy'}</button><button onClick={()=>update(q.id,{queued:false})}>×</button></div>)}</div>:<Empty text="Nothing queued yet. Add a quote when inspiration strikes."/>}</section>}
-function More({count,includeTitle,setIncludeTitle,exportData,fileRef,importData}:{count:number;includeTitle:boolean;setIncludeTitle:(v:boolean)=>void;exportData:()=>void;fileRef:React.RefObject<HTMLInputElement|null>;importData:(f:File)=>void}){return <section><Header eyebrow="Control room" title="More" sub="Backup, restore and fine-tune your archive."/><div className="settings"><label className="setting-toggle"><span><strong>Include episode title</strong><small>Add the title to Copy for X attribution</small></span><input type="checkbox" checked={includeTitle} onChange={e=>setIncludeTitle(e.target.checked)}/><i/></label><div><span>ARCHIVE HEALTH</span><h2>{count} quotes safely stored</h2><p>Available offline on this device. Cloud synchronization resumes automatically.</p></div><button onClick={exportData}><b>↓</b><span><strong>Export backup</strong><small>Download a complete JSON archive</small></span></button><button onClick={()=>fileRef.current?.click()}><b>↑</b><span><strong>Restore backup</strong><small>Import a Frasier Archive JSON file</small></span></button><input ref={fileRef} hidden type="file" accept="application/json" onChange={e=>e.target.files?.[0]&&importData(e.target.files[0])}/></div></section>}
-function Empty({text}:{text:string}){return <div className="empty"><b>◉</b><h2>Dead air.</h2><p>{text}</p></div>}
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuotes, type Quote } from "./storage";
+import { episodeFor, episodesForSeason } from "./data/episodes";
+import {
+  EMPTY_FILTERS,
+  activeFilterCount,
+  episodeTitle,
+  formatBody,
+  matchesFilters,
+  matchesSearch,
+  sortQuotes,
+  type ArchiveFilters,
+  type ArchiveSort,
+} from "./quote-utils";
+import "./archive.css";
+type View = "today" | "archive" | "add" | "queue" | "more";
+const PEOPLE = [
+  "Frasier",
+  "Niles",
+  "Martin",
+  "Daphne",
+  "Roz",
+  "Eddie",
+  "Lilith",
+  "Bulldog",
+  "Bebe",
+  "Gil",
+  "Noel",
+  "Kenny",
+  "Donny",
+  "Mel",
+  "Frederick",
+  "Sherry",
+  "Ronee",
+  "Kate",
+  "Tom",
+  "Jerome",
+  "Father Mike",
+  "Caller",
+  "Doctor's Secretary",
+  "Guard",
+  "Timbermill Waitress",
+];
+const navs: [View, string, string][] = [
+  ["today", "Today", "◉"],
+  ["archive", "Archive", "⌕"],
+  ["add", "Add", "＋"],
+  ["queue", "Queue", "≡"],
+  ["more", "More", "•••"],
+];
+function attribution(q: Quote, include = false) {
+  const names =
+      q.speakers.length < 2
+        ? q.speakers[0]
+        : q.speakers.slice(0, -1).join(", ") + " and " + q.speakers.at(-1),
+    title = episodeTitle(q);
+  return `- ${names}, ${include && title ? `“${title},” ` : ""}S${q.season}E${q.episode}`;
+}
+function output(q: Quote, include = false) {
+  return `${formatBody(q.body)}\n\n${attribution(q, include)}`;
+}
+const QUEUE_ORDER_KEY = "frasier-queue-order";
+function readQueueOrder() {
+  try {
+    const value = JSON.parse(localStorage.getItem(QUEUE_ORDER_KEY) || "[]");
+    return Array.isArray(value) ? value.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+export default function ArchiveApp() {
+  const api = useQuotes(),
+    [view, setView] = useState<View>("today"),
+    [query, setQuery] = useState(""),
+    [copied, setCopied] = useState<string>(),
+    [editing, setEditing] = useState<Quote>(),
+    [toast, setToast] = useState<{ text: string; undo?: () => void }>(),
+    [online, setOnline] = useState(navigator.onLine),
+    [includeTitle, setIncludeTitle] = useState(
+      () => localStorage.getItem("frasier-include-episode-title") === "true",
+    ),
+    [queueOrder, setQueueOrder] = useState<string[]>(readQueueOrder),
+    [queueOrderReady, setQueueOrderReady] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const f = () => setOnline(navigator.onLine);
+    addEventListener("online", f);
+    addEventListener("offline", f);
+    return () => {
+      removeEventListener("online", f);
+      removeEventListener("offline", f);
+    };
+  }, []);
+  useEffect(
+    () =>
+      localStorage.setItem(
+        "frasier-include-episode-title",
+        String(includeTitle),
+      ),
+    [includeTitle],
+  );
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(undefined), 5000);
+    return () => clearTimeout(t);
+  }, [toast]);
+  useEffect(() => {
+    if (!api.ready) return;
+    let active = true;
+    void (async () => {
+      try {
+        const response = await fetch("/api/queue-order", { cache: "no-store" });
+        if (!response.ok) throw new Error();
+        const data = (await response.json()) as { order?: string[] };
+        if (active && Array.isArray(data.order) && data.order.length) {
+          const activeIds = api.quotes
+              .filter((q) => !q.deletedAt && q.queued && !q.postedAt)
+              .map((q) => q.id),
+            remote = data.order.filter((id) => activeIds.includes(id));
+          setQueueOrder((local) => [
+            ...remote,
+            ...local.filter(
+              (id) => activeIds.includes(id) && !remote.includes(id),
+            ),
+            ...activeIds.filter(
+              (id) => !remote.includes(id) && !local.includes(id),
+            ),
+          ]);
+        }
+      } catch {
+        // The device-local order remains authoritative while offline.
+      } finally {
+        if (active) setQueueOrderReady(true);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [api.ready]);
+  useEffect(() => {
+    if (!api.ready) return;
+    const activeIds = api.quotes
+      .filter((q) => !q.deletedAt && q.queued && !q.postedAt)
+      .map((q) => q.id);
+    setQueueOrder((current) => {
+      const next = [
+        ...current.filter((id) => activeIds.includes(id)),
+        ...activeIds.filter((id) => !current.includes(id)),
+      ];
+      return next.length === current.length &&
+        next.every((id, index) => id === current[index])
+        ? current
+        : next;
+    });
+  }, [api.quotes, api.ready]);
+  useEffect(() => {
+    localStorage.setItem(QUEUE_ORDER_KEY, JSON.stringify(queueOrder));
+    if (!queueOrderReady) return;
+    const save = () => {
+      if (!navigator.onLine) return;
+      void fetch("/api/queue-order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ order: queueOrder }),
+      }).catch(() => undefined);
+    };
+    const timer = setTimeout(save, 350);
+    addEventListener("online", save);
+    return () => {
+      clearTimeout(timer);
+      removeEventListener("online", save);
+    };
+  }, [queueOrder, queueOrderReady]);
+  const quotes = api.quotes.filter((q) => !q.deletedAt),
+    queuedCandidates = quotes.filter((q) => q.queued && !q.postedAt),
+    queued = [...queuedCandidates].sort((a, b) => {
+      const aIndex = queueOrder.indexOf(a.id),
+        bIndex = queueOrder.indexOf(b.id);
+      if (aIndex < 0 && bIndex < 0)
+        return b.createdAt.localeCompare(a.createdAt);
+      if (aIndex < 0) return 1;
+      if (bIndex < 0) return -1;
+      return aIndex - bIndex;
+    }),
+    today = queued[0] || quotes.find((q) => !q.postedAt);
+  const reorderQueue = (fromId: string, toId: string) => {
+    if (fromId === toId) return;
+    setQueueOrder((stored) => {
+      const active = queued.map((q) => q.id),
+        from = active.indexOf(fromId),
+        to = active.indexOf(toId);
+      if (from < 0 || to < 0) return stored;
+      active.splice(from, 1);
+      active.splice(to, 0, fromId);
+      const activeSet = new Set(active);
+      return [...active, ...stored.filter((id) => !activeSet.has(id))];
+    });
+  };
+  const copy = async (q: Quote) => {
+    await navigator.clipboard.writeText(output(q, includeTitle));
+    setCopied(q.id);
+    setTimeout(() => setCopied(undefined), 1800);
+  };
+  const remove = async (q: Quote) => {
+    await api.deleteQuote(q.id);
+    setToast({
+      text: "Quote deleted",
+      undo: () => void api.restoreQuote(q.id),
+    });
+  };
+  const exportData = () => {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(
+      new Blob(
+        [
+          JSON.stringify(
+            { schemaVersion: 1, exportedAt: new Date().toISOString(), quotes },
+            null,
+            2,
+          ),
+        ],
+        { type: "application/json" },
+      ),
+    );
+    a.download = "frasier-quote-archive.json";
+    a.click();
+  };
+  const importData = async (f: File) => {
+    try {
+      const data = JSON.parse(await f.text());
+      if (Array.isArray(data.quotes)) await api.replaceArchive(data.quotes);
+      alert("Archive restored.");
+    } catch {
+      alert("That file could not be imported.");
+    }
+  };
+  return (
+    <div className="app-shell">
+      <aside className="rail">
+        <Brand />
+        <nav>
+          <Nav view={view} setView={setView} />
+        </nav>
+        <button className="rail-foot" onClick={api.syncNow}>
+          <span className={online ? "dot" : "dot off"} />
+          {online ? api.syncStatus : "Offline ready"}
+        </button>
+      </aside>
+      <main className="main">
+        <header className="mobile-head">
+          <Brand />
+          <button className="sync" onClick={api.syncNow}>
+            <span className={online ? "dot" : "dot off"} />
+            {online ? api.syncStatus : "Offline"}
+          </button>
+        </header>
+        {!api.ready ? (
+          <div className="loading">Tuning KACL…</div>
+        ) : view === "today" ? (
+          <Today
+            q={today}
+            copy={copy}
+            copied={copied}
+            update={api.updateQuote}
+            edit={setEditing}
+            remove={remove}
+          />
+        ) : view === "archive" ? (
+          <Archive
+            quotes={quotes}
+            query={query}
+            setQuery={setQuery}
+            copy={copy}
+            copied={copied}
+            update={api.updateQuote}
+            edit={setEditing}
+            remove={remove}
+          />
+        ) : view === "add" ? (
+          <section>
+            <Header
+              eyebrow="Studio notebook"
+              title="Capture a quote"
+              sub="From memory to archive in under thirty seconds."
+            />
+            <QuoteForm
+              mode="create"
+              includeTitle={includeTitle}
+              existing={quotes}
+              cancel={() => setView("archive")}
+              save={async (q, queue) => {
+                await api.createQuote({ ...q, queued: queue });
+                setView(queue ? "queue" : "archive");
+              }}
+            />
+          </section>
+        ) : view === "queue" ? (
+          <Queue
+            quotes={queued}
+            update={api.updateQuote}
+            copy={copy}
+            copied={copied}
+            reorder={reorderQueue}
+          />
+        ) : (
+          <More
+            count={quotes.length}
+            includeTitle={includeTitle}
+            setIncludeTitle={setIncludeTitle}
+            exportData={exportData}
+            fileRef={fileRef}
+            importData={importData}
+          />
+        )}
+      </main>
+      <nav className="bottom">
+        <Nav view={view} setView={setView} />
+      </nav>
+      {editing && (
+        <Editor
+          quote={editing}
+          existing={quotes}
+          includeTitle={includeTitle}
+          close={() => setEditing(undefined)}
+          save={async (q) => {
+            await api.updateQuote(q.id, q);
+            setEditing(undefined);
+            setToast({ text: "Quote updated" });
+          }}
+        />
+      )}
+      {toast && (
+        <div className="toast">
+          {toast.text}
+          {toast.undo && (
+            <button
+              onClick={() => {
+                toast.undo?.();
+                setToast(undefined);
+              }}
+            >
+              Undo
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+function Brand() {
+  return (
+    <div className="brand">
+      <div className="mic">●</div>
+      <div>
+        <span>KACL 780</span>
+        <strong>Frasier Archive</strong>
+      </div>
+      <b>ON AIR</b>
+    </div>
+  );
+}
+function Nav({ view, setView }: { view: View; setView: (v: View) => void }) {
+  return (
+    <>
+      {navs.map(([v, l, i]) => (
+        <button
+          key={v}
+          className={`${view === v ? "active" : ""} ${v === "add" ? "add-nav" : ""}`}
+          onClick={() => setView(v)}
+        >
+          <i>{i}</i>
+          <span>{l}</span>
+        </button>
+      ))}
+    </>
+  );
+}
+function Header({
+  eyebrow,
+  title,
+  sub,
+}: {
+  eyebrow: string;
+  title: string;
+  sub: string;
+}) {
+  return (
+    <div className="page-head">
+      <div>
+        <p>{eyebrow}</p>
+        <h1>{title}</h1>
+        <span>{sub}</span>
+      </div>
+      <div className="wave">▂▅▃▆▂▇▃▅▂▆</div>
+    </div>
+  );
+}
+function Menu({
+  q,
+  update,
+  edit,
+  remove,
+}: {
+  q: Quote;
+  update: (id: string, p: Partial<Quote>) => void;
+  edit: (q: Quote) => void;
+  remove: (q: Quote) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const act = (fn: () => void) => {
+    fn();
+    setOpen(false);
+  };
+  return (
+    <div className="menu-wrap">
+      <button
+        className="dots"
+        aria-label="Quote options"
+        onClick={() => setOpen(!open)}
+      >
+        •••
+      </button>
+      {open && (
+        <>
+          <button
+            className="menu-backdrop"
+            aria-label="Close menu"
+            onClick={() => setOpen(false)}
+          />
+          <div className="quote-menu">
+            <button onClick={() => act(() => edit(q))}>Edit quote</button>
+            <button
+              onClick={() => act(() => update(q.id, { queued: !q.queued }))}
+            >
+              {q.queued ? "Remove from queue" : "Add to queue"}
+            </button>
+            <button
+              onClick={() =>
+                act(() =>
+                  update(q.id, {
+                    postedAt: q.postedAt ? undefined : new Date().toISOString(),
+                    queued: q.postedAt ? q.queued : false,
+                  }),
+                )
+              }
+            >
+              {q.postedAt ? "Mark unposted" : "Mark posted"}
+            </button>
+            <button
+              onClick={() => act(() => update(q.id, { favorite: !q.favorite }))}
+            >
+              {q.favorite ? "Remove favorite" : "Add favorite"}
+            </button>
+            <button
+              className="danger"
+              onClick={() =>
+                act(() => {
+                  if (
+                    confirm(
+                      `Delete “${q.body.slice(0, 55)}${q.body.length > 55 ? "…" : ""}”?`,
+                    )
+                  )
+                    remove(q);
+                })
+              }
+            >
+              Delete quote
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+function Card({
+  q,
+  copy,
+  copied,
+  update,
+  edit,
+  remove,
+  hero = false,
+}: {
+  q: Quote;
+  copy: (q: Quote) => void;
+  copied?: string;
+  update: (id: string, p: Partial<Quote>) => void;
+  edit: (q: Quote) => void;
+  remove: (q: Quote) => void;
+  hero?: boolean;
+}) {
+  return (
+    <article className={hero ? "quote-card hero" : "quote-card"}>
+      <div className="card-top">
+        <span className="ep">
+          S{q.season} · EP {q.episode}
+        </span>
+        <div className="card-tools">
+          <button
+            className={q.favorite ? "star on" : "star"}
+            onClick={() => update(q.id, { favorite: !q.favorite })}
+          >
+            ★
+          </button>
+          <Menu q={q} update={update} edit={edit} remove={remove} />
+        </div>
+      </div>
+      <blockquote>{formatBody(q.body)}</blockquote>
+      <div className="attribution">
+        <strong>{q.speakers.join(" & ")}</strong>
+        <span>{episodeTitle(q)}</span>
+      </div>
+      <div className="actions">
+        <button className="primary" onClick={() => copy(q)}>
+          {copied === q.id ? "Copied ✓" : "Copy for X"}
+        </button>
+        {q.postedAt ? (
+          <span className="posted">
+            Posted {new Date(q.postedAt).toLocaleDateString()}
+          </span>
+        ) : (
+          <button
+            onClick={() =>
+              update(q.id, {
+                postedAt: new Date().toISOString(),
+                queued: false,
+              })
+            }
+          >
+            Mark posted
+          </button>
+        )}
+      </div>
+    </article>
+  );
+}
+function Today({
+  q,
+  copy,
+  copied,
+  update,
+  edit,
+  remove,
+}: {
+  q?: Quote;
+  copy: (q: Quote) => void;
+  copied?: string;
+  update: (id: string, p: Partial<Quote>) => void;
+  edit: (q: Quote) => void;
+  remove: (q: Quote) => void;
+}) {
+  return (
+    <section>
+      <Header
+        eyebrow="Today’s broadcast"
+        title="Good afternoon, Seattle."
+        sub="Your next quote is ready for air."
+      />
+      {q ? (
+        <Card
+          q={q}
+          copy={copy}
+          copied={copied}
+          update={update}
+          edit={edit}
+          remove={remove}
+          hero
+        />
+      ) : (
+        <Empty text="Your archive is waiting for its first quote." />
+      )}
+    </section>
+  );
+}
+function Archive({
+  quotes,
+  query,
+  setQuery,
+  copy,
+  copied,
+  update,
+  edit,
+  remove,
+}: {
+  quotes: Quote[];
+  query: string;
+  setQuery: (s: string) => void;
+  copy: (q: Quote) => void;
+  copied?: string;
+  update: (id: string, p: Partial<Quote>) => void;
+  edit: (q: Quote) => void;
+  remove: (q: Quote) => void;
+}) {
+  const [filters, setFilters] = useState<ArchiveFilters>(EMPTY_FILTERS),
+    [sort, setSort] = useState<ArchiveSort>(
+      () => (localStorage.getItem("frasier-sort") as ArchiveSort) || "recent",
+    ),
+    [open, setOpen] = useState(false);
+  useEffect(() => localStorage.setItem("frasier-sort", sort), [sort]);
+  const list = useMemo(
+      () =>
+        sortQuotes(
+          quotes.filter(
+            (q) => matchesSearch(q, query) && matchesFilters(q, filters),
+          ),
+          sort,
+        ),
+      [quotes, query, filters, sort],
+    ),
+    count = activeFilterCount(filters);
+  return (
+    <section>
+      <Header
+        eyebrow={`${quotes.length} saved quotations`}
+        title="The Archive"
+        sub="Every bon mot, barb and beautiful disaster."
+      />
+      <div className="archive-tools">
+        <div className="search">
+          <span>⌕</span>
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search quote, character or episode…"
+          />
+        </div>
+        <button className="filter-button" onClick={() => setOpen(true)}>
+          Filters{count > 0 && <b>{count}</b>}
+        </button>
+        <select
+          className="sort-select"
+          value={sort}
+          onChange={(e) => setSort(e.target.value as ArchiveSort)}
+        >
+          <option value="recent">Recently added</option>
+          <option value="oldest">Oldest added</option>
+          <option value="episode">Episode order</option>
+          <option value="episodeReverse">Reverse episode</option>
+          <option value="recentlyPosted">Recently posted</option>
+          <option value="character">Character A–Z</option>
+        </select>
+      </div>
+      {count > 0 && (
+        <div className="filter-summary">
+          <span>{count} filters active</span>
+          <button onClick={() => setFilters(EMPTY_FILTERS)}>Clear</button>
+        </div>
+      )}
+      <div className="results">
+        <p>
+          {list.length} {list.length === 1 ? "result" : "results"}
+        </p>
+        {list.map((q) => (
+          <Card
+            key={q.id}
+            q={q}
+            copy={copy}
+            copied={copied}
+            update={update}
+            edit={edit}
+            remove={remove}
+          />
+        ))}
+      </div>
+      {open && (
+        <Filters
+          filters={filters}
+          setFilters={setFilters}
+          resultCount={list.length}
+          close={() => setOpen(false)}
+        />
+      )}
+    </section>
+  );
+}
+function Filters({
+  filters,
+  setFilters,
+  resultCount,
+  close,
+}: {
+  filters: ArchiveFilters;
+  setFilters: (f: ArchiveFilters) => void;
+  resultCount: number;
+  close: () => void;
+}) {
+  const toggle = (
+    key: "characters" | "seasons" | "episodes",
+    value: string | number,
+  ) => {
+    const values = filters[key] as (string | number)[],
+      has = values.includes(value);
+    let next = {
+      ...filters,
+      [key]: has ? values.filter((x) => x !== value) : [...values, value],
+    } as ArchiveFilters;
+    if (key === "seasons" && has)
+      next = {
+        ...next,
+        episodes: next.episodes.filter(
+          (x) => Number(x.split("-")[0]) !== value,
+        ),
+      };
+    if (key === "episodes" && !has) {
+      const s = Number(String(value).split("-")[0]);
+      if (!next.seasons.includes(s))
+        next = { ...next, seasons: [...next.seasons, s] };
+    }
+    setFilters(next);
+  };
+  return (
+    <div className="sheet-layer">
+      <button className="sheet-backdrop" onClick={close} />
+      <aside className="filter-sheet">
+        <header>
+          <div>
+            <small>ARCHIVE</small>
+            <h2>Filter archive</h2>
+          </div>
+          <button onClick={close}>×</button>
+        </header>
+        <div className="filter-scroll">
+          <Section title="Characters">
+            <div className="check-grid">
+              {PEOPLE.map((p) => (
+                <label key={p}>
+                  <input
+                    type="checkbox"
+                    checked={filters.characters.includes(p)}
+                    onChange={() => toggle("characters", p)}
+                  />
+                  <span>{p}</span>
+                </label>
+              ))}
+            </div>
+          </Section>
+          <Section title="Seasons">
+            <div className="season-grid">
+              {Array.from({ length: 11 }, (_, i) => i + 1).map((s) => (
+                <label key={s}>
+                  <input
+                    type="checkbox"
+                    checked={filters.seasons.includes(s)}
+                    onChange={() => toggle("seasons", s)}
+                  />
+                  <span>S{s}</span>
+                </label>
+              ))}
+            </div>
+          </Section>
+          <Section title="Episodes">
+            {filters.seasons.length ? (
+              filters.seasons
+                .slice()
+                .sort((a, b) => a - b)
+                .map((s) => (
+                  <details key={s} open={filters.seasons.length === 1}>
+                    <summary>Season {s}</summary>
+                    {episodesForSeason(s).map((e) => (
+                      <label className="episode-row" key={e.key}>
+                        <input
+                          type="checkbox"
+                          checked={filters.episodes.includes(e.key)}
+                          onChange={() => toggle("episodes", e.key)}
+                        />
+                        <span>
+                          E{String(e.episode).padStart(2, "0")} · {e.title}
+                        </span>
+                      </label>
+                    ))}
+                  </details>
+                ))
+            ) : (
+              <p className="hint">Choose a season to filter by episode.</p>
+            )}
+          </Section>
+          <Section title="Posting status">
+            <Radio
+              value={filters.postingStatus}
+              set={(v) =>
+                setFilters({
+                  ...filters,
+                  postingStatus: v as ArchiveFilters["postingStatus"],
+                })
+              }
+              options={[
+                ["any", "Any status"],
+                ["unposted", "Unposted"],
+                ["posted", "Posted"],
+              ]}
+            />
+          </Section>
+          <Section title="Queue status">
+            <Radio
+              value={filters.queueStatus}
+              set={(v) =>
+                setFilters({
+                  ...filters,
+                  queueStatus: v as ArchiveFilters["queueStatus"],
+                })
+              }
+              options={[
+                ["any", "Any queue status"],
+                ["queued", "In queue"],
+                ["notQueued", "Not queued"],
+              ]}
+            />
+          </Section>
+          <Section title="More">
+            <label className="switch-row">
+              <input
+                type="checkbox"
+                checked={filters.favoritesOnly}
+                onChange={(e) =>
+                  setFilters({ ...filters, favoritesOnly: e.target.checked })
+                }
+              />
+              <span>Favorites only</span>
+            </label>
+            <label className="switch-row">
+              <input
+                type="checkbox"
+                checked={filters.hasNotes}
+                onChange={(e) =>
+                  setFilters({ ...filters, hasNotes: e.target.checked })
+                }
+              />
+              <span>Has private notes</span>
+            </label>
+            <Radio
+              value={filters.quoteType}
+              set={(v) =>
+                setFilters({
+                  ...filters,
+                  quoteType: v as ArchiveFilters["quoteType"],
+                })
+              }
+              options={[
+                ["any", "Any quote type"],
+                ["single", "Single character"],
+                ["exchange", "Exchange"],
+              ]}
+            />
+          </Section>
+        </div>
+        <footer>
+          <button onClick={() => setFilters(EMPTY_FILTERS)}>Clear all</button>
+          <button className="primary" onClick={close}>
+            Show {resultCount} results
+          </button>
+        </footer>
+      </aside>
+    </div>
+  );
+}
+function Section({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="filter-section">
+      <h3>{title}</h3>
+      {children}
+    </section>
+  );
+}
+function Radio({
+  value,
+  set,
+  options,
+}: {
+  value: string;
+  set: (v: string) => void;
+  options: [string, string][];
+}) {
+  return (
+    <div className="radio-list">
+      {options.map(([v, l]) => (
+        <label key={v}>
+          <input type="radio" checked={value === v} onChange={() => set(v)} />
+          <span>{l}</span>
+        </label>
+      ))}
+    </div>
+  );
+}
+function QuoteForm({
+  mode,
+  initial,
+  includeTitle,
+  existing,
+  save,
+  cancel,
+}: {
+  mode: "create" | "edit";
+  initial?: Quote;
+  includeTitle: boolean;
+  existing: Quote[];
+  save: (q: Quote, queue: boolean) => void;
+  cancel: () => void;
+}) {
+  const [body, setBody] = useState(initial?.body || ""),
+    [speakers, setSpeakers] = useState(initial?.speakers || ["Frasier"]),
+    [season, setSeason] = useState(initial?.season || 3),
+    [episode, setEpisode] = useState(initial?.episode || 17),
+    [notes, setNotes] = useState(initial?.notes || "");
+  useEffect(() => {
+    if (!episodesForSeason(season).some((e) => e.episode === episode))
+      setEpisode(1);
+  }, [season, episode]);
+  const q: Quote = {
+    ...(initial || {
+      id: crypto.randomUUID(),
+      favorite: false,
+      queued: false,
+      createdAt: new Date().toISOString(),
+    }),
+    body,
+    speakers,
+    season,
+    episode,
+    title: episodeFor(season, episode)?.title || "",
+    notes,
+  };
+  const duplicate = existing.some(
+      (x) =>
+        x.id !== q.id &&
+        x.body.trim().toLowerCase() === body.trim().toLowerCase(),
+    ),
+    valid = Boolean(body.trim() && speakers.length);
+  return (
+    <div className="form-card">
+      <label>
+        QUOTE OR EXCHANGE
+        <textarea
+          autoFocus
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          placeholder="Type each spoken line, with a blank line between speakers."
+        />
+        <small>
+          {output(q, includeTitle).length} copied characters
+          {output(q, includeTitle).length > 280 ? " · Over 280" : ""}
+        </small>
+      </label>
+      {duplicate && (
+        <p className="form-warning">
+          A quote with the same text already exists.
+        </p>
+      )}
+      <fieldset>
+        <legend>SPEAKERS</legend>
+        <div className="people">
+          {PEOPLE.map((p) => (
+            <button
+              type="button"
+              className={speakers.includes(p) ? "chosen" : ""}
+              onClick={() =>
+                setSpeakers(
+                  speakers.includes(p)
+                    ? speakers.filter((x) => x !== p)
+                    : [...speakers, p],
+                )
+              }
+              key={p}
+            >
+              {p}
+            </button>
+          ))}
+        </div>
+      </fieldset>
+      <div className="row">
+        <label>
+          SEASON
+          <select value={season} onChange={(e) => setSeason(+e.target.value)}>
+            {Array.from({ length: 11 }, (_, i) => (
+              <option key={i} value={i + 1}>
+                Season {i + 1}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          EPISODE
+          <select value={episode} onChange={(e) => setEpisode(+e.target.value)}>
+            {episodesForSeason(season).map((e) => (
+              <option key={e.key} value={e.episode}>
+                E{e.episode} · {e.title}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <label>
+        PRIVATE NOTES
+        <input
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="Optional context or reminder"
+        />
+      </label>
+      <div className="preview">
+        <span>X PREVIEW · {output(q, includeTitle).length}/280</span>
+        <p>
+          {body ? formatBody(body) : "Your quote preview will appear here."}
+        </p>
+        {body && <strong>{attribution(q, includeTitle)}</strong>}
+      </div>
+      <div className="save-row">
+        <button onClick={cancel}>Cancel</button>
+        {mode === "create" && (
+          <button disabled={!valid} onClick={() => save(q, false)}>
+            Save quote
+          </button>
+        )}
+        <button
+          className="primary"
+          disabled={!valid}
+          onClick={() => save(q, mode === "create")}
+        >
+          {mode === "edit" ? "Save changes" : "Save & queue"}
+        </button>
+      </div>
+    </div>
+  );
+}
+function Editor({
+  quote,
+  existing,
+  includeTitle,
+  close,
+  save,
+}: {
+  quote: Quote;
+  existing: Quote[];
+  includeTitle: boolean;
+  close: () => void;
+  save: (q: Quote) => void;
+}) {
+  return (
+    <div className="editor-layer">
+      <button className="sheet-backdrop" onClick={close} />
+      <section className="editor">
+        <header>
+          <div>
+            <small>EDIT QUOTE</small>
+            <h2>
+              S{quote.season} · Episode {quote.episode}
+            </h2>
+          </div>
+          <button onClick={close}>×</button>
+        </header>
+        <QuoteForm
+          mode="edit"
+          initial={quote}
+          existing={existing}
+          includeTitle={includeTitle}
+          cancel={close}
+          save={(q) => save(q)}
+        />
+      </section>
+    </div>
+  );
+}
+function Queue({
+  quotes,
+  update,
+  copy,
+  copied,
+  reorder,
+}: {
+  quotes: Quote[];
+  update: (id: string, p: Partial<Quote>) => void;
+  copy: (q: Quote) => void;
+  copied?: string;
+  reorder: (fromId: string, toId: string) => void;
+}) {
+  const [dragging, setDragging] = useState<string>();
+  const moveFromPointer = (event: React.PointerEvent, fromId: string) => {
+    if (event.pointerType === "mouse") return;
+    const target = document
+      .elementFromPoint(event.clientX, event.clientY)
+      ?.closest<HTMLElement>("[data-queue-id]")?.dataset.queueId;
+    if (target && target !== fromId) reorder(fromId, target);
+  };
+  return (
+    <section>
+      <Header
+        eyebrow={`${quotes.length} days prepared`}
+        title="The Queue"
+        sub="Drag quotes into your preferred posting order."
+      />
+      {quotes.length ? (
+        <div className="queue-list">
+          {quotes.map((q, i) => (
+            <div
+              className={`queue-row ${dragging === q.id ? "dragging" : ""}`}
+              data-queue-id={q.id}
+              key={q.id}
+              onDragEnter={(event) => {
+                event.preventDefault();
+                if (dragging && dragging !== q.id) reorder(dragging, q.id);
+              }}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => {
+                event.preventDefault();
+                setDragging(undefined);
+              }}
+            >
+              <button
+                className="drag-handle"
+                draggable
+                aria-label={`Reorder queue item ${i + 1}`}
+                title="Drag to reorder"
+                onDragStart={(event) => {
+                  event.dataTransfer.effectAllowed = "move";
+                  event.dataTransfer.setData("text/plain", q.id);
+                  setDragging(q.id);
+                }}
+                onDragEnd={() => setDragging(undefined)}
+                onPointerDown={(event) => {
+                  if (event.pointerType === "mouse") return;
+                  event.currentTarget.setPointerCapture(event.pointerId);
+                  setDragging(q.id);
+                }}
+                onPointerMove={(event) => moveFromPointer(event, q.id)}
+                onPointerUp={(event) => {
+                  if (event.currentTarget.hasPointerCapture(event.pointerId))
+                    event.currentTarget.releasePointerCapture(event.pointerId);
+                  setDragging(undefined);
+                }}
+                onPointerCancel={() => setDragging(undefined)}
+                onKeyDown={(event) => {
+                  if (event.key === "ArrowUp" && i > 0) {
+                    event.preventDefault();
+                    reorder(q.id, quotes[i - 1].id);
+                  }
+                  if (event.key === "ArrowDown" && i < quotes.length - 1) {
+                    event.preventDefault();
+                    reorder(q.id, quotes[i + 1].id);
+                  }
+                }}
+              >
+                <span aria-hidden="true">⠿</span>
+              </button>
+              <b>{String(i + 1).padStart(2, "0")}</b>
+              <div>
+                <span>
+                  {q.speakers.join(" & ")} · S{q.season} Ep{q.episode}
+                </span>
+                <p>{q.body}</p>
+              </div>
+              <button onClick={() => copy(q)}>
+                {copied === q.id ? "✓" : "Copy"}
+              </button>
+              <button onClick={() => update(q.id, { queued: false })}>×</button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <Empty text="Nothing queued yet. Add a quote when inspiration strikes." />
+      )}
+    </section>
+  );
+}
+function More({
+  count,
+  includeTitle,
+  setIncludeTitle,
+  exportData,
+  fileRef,
+  importData,
+}: {
+  count: number;
+  includeTitle: boolean;
+  setIncludeTitle: (v: boolean) => void;
+  exportData: () => void;
+  fileRef: React.RefObject<HTMLInputElement | null>;
+  importData: (f: File) => void;
+}) {
+  return (
+    <section>
+      <Header
+        eyebrow="Control room"
+        title="More"
+        sub="Backup, restore and fine-tune your archive."
+      />
+      <div className="settings">
+        <label className="setting-toggle">
+          <span>
+            <strong>Include episode title</strong>
+            <small>Add the title to Copy for X attribution</small>
+          </span>
+          <input
+            type="checkbox"
+            checked={includeTitle}
+            onChange={(e) => setIncludeTitle(e.target.checked)}
+          />
+          <i />
+        </label>
+        <div>
+          <span>ARCHIVE HEALTH</span>
+          <h2>{count} quotes safely stored</h2>
+          <p>
+            Available offline on this device. Cloud synchronization resumes
+            automatically.
+          </p>
+        </div>
+        <button onClick={exportData}>
+          <b>↓</b>
+          <span>
+            <strong>Export backup</strong>
+            <small>Download a complete JSON archive</small>
+          </span>
+        </button>
+        <button onClick={() => fileRef.current?.click()}>
+          <b>↑</b>
+          <span>
+            <strong>Restore backup</strong>
+            <small>Import a Frasier Archive JSON file</small>
+          </span>
+        </button>
+        <input
+          ref={fileRef}
+          hidden
+          type="file"
+          accept="application/json"
+          onChange={(e) => e.target.files?.[0] && importData(e.target.files[0])}
+        />
+      </div>
+    </section>
+  );
+}
+function Empty({ text }: { text: string }) {
+  return (
+    <div className="empty">
+      <b>◉</b>
+      <h2>Dead air.</h2>
+      <p>{text}</p>
+    </div>
+  );
+}
